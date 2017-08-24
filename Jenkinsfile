@@ -32,7 +32,7 @@ node {
                 def imageName='acrjdtest.azurecr.io/node-demo'+':'+env.BUILD_NUMBER
                 sh "docker login acrjdtest.azurecr.io -u ${acr_un} -p ${acr_pw}"
                 sh "docker pull ${imageName}"
-                sh "docker run -d --name node-demo -p 80:8080 ${imageName}"
+                sh "docker run -d --name node-demo -p 80:8000 ${imageName}"
             }
         }
     }
