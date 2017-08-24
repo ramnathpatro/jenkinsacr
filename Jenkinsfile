@@ -5,34 +5,32 @@ node {
             git url: 'https://github.com/jldeen/swampup2017'
         }
 
-        // Build and Deploy to Artifactory 'stage'... 
+        // Build and Deploy to ACR 'stage'... 
         stage('Build and Push to Azure Container Registry') {
-                def tagName='acrjdtest.azurecr.io/node-demo:'+env.BUILD_NUMBER
-                docker.build(tagName)
-                withCredentials([usernamePassword(credentialsId: 'acr_credentials', passwordVariable: 'acr_pw', usernameVariable: 'acr_un')]) {
-                    sh 'docker login acrjdtest.azurecr.io -u ${acr_un} -p ${acr_pw}'
-                    sh 'docker push '+tagName
+                app = docker.build('acrjdtest.azurecr.io/node-demo')
+                docker.withRegistry('https://acrjdtest.azurecr.io', 'acr_credentials') {
+                app.push("${env.BUILD_NUMBER}")
+                app.push('latest')
                 }
         }
 
         stage('Open SSH Tunnel to Azure Swarm Cluster') {
                 // Open SSH Tunnel to ACS Cluster
                 sshagent(['acs_key']) {
-                    sh 'ssh -fNL 2375:localhost:2375 -p 2200 jldeen@dnsprefix.datacenter.cloudapp.azure.com -o StrictHostKeyChecking=no -o ServerAliveInterval=240 && echo "ACS SSH Tunnel successfully opened..."'
+                    sh 'ssh -fNL 2375:localhost:2375 -p 2200 jldeen@dnsprefix.location.cloudapp.azure.com -o StrictHostKeyChecking=no -o ServerAliveInterval=240 && echo "ACS SSH Tunnel successfully opened..."'
                 }
+                // Check tunnel is open and set DOCKER_HOST env var
+           env.DOCKER_HOST=':2375'
+           sh 'echo "DOCKER_HOST is $DOCKER_HOST"'
+           sh 'docker info'
         }
 
         // Pull, Run, and Test on ACS 'stage'... 
         stage('ACS Docker Pull and Run') {
-        // Set env variable for stage for SSH ACS Tunnel
-            withCredentials([usernamePassword(credentialsId: 'acr_credentials', passwordVariable: 'acr_pw', usernameVariable: 'acr_un')]) {
-                env.DOCKER_HOST=':2375'
-                sh 'echo "DOCKER_HOST is $DOCKER_HOST"'
-                sh 'docker info'
-                def imageName='acrjdtest.azurecr.io/node-demo'+':'+env.BUILD_NUMBER
-                sh "docker login acrjdtest.azurecr.io -u ${acr_un} -p ${acr_pw}"
-                sh "docker pull ${imageName}"
-                sh "docker run -d --name node-demo -p 80:8000 ${imageName}"
+           app = docker.image('acrjdtest.azurecr.io/node-demo:latest')
+           docker.withRegistry('https://acrjdtest.azurecr.io', 'acr_credentials') {
+           app.pull()
+           app.run('--name node-demo -p 80:8000')
             }
         }
     }
