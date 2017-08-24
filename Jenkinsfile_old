@@ -1,0 +1,39 @@
+node {
+    dir('demo') {
+        // Mark the code checkout 'stage'....
+        stage('Checkout From BitBucket or GitHub') {
+            git branch: 'develop', credentialsId: 'bb-login', url: 'https://bitbucket.org/manhattanprojectteam/iqboxy-hub.git'
+        }
+
+        // Build and Deploy to Artifactory 'stage'... 
+        stage('Build and Push to Azure Container Registry') {
+                def tagName='registryname.azurecr.io/image-name:'+env.BUILD_NUMBER
+                docker.build(tagName)
+                withCredentials([usernamePassword(credentialsId: 'acr_credentials', passwordVariable: 'acr_pw', usernameVariable: 'acr_un')]) {
+                    sh 'docker login registryprefix.azurecr.io -u ${acr_un} -p ${acr_pw}'
+                    sh 'docker push '+tagName
+                }
+        }
+
+        stage('Open SSH Tunnel to Azure Swarm Cluster') {
+                // Open SSH Tunnel to ACS Cluster
+                sshagent(['azure-key']) {
+                    sh 'ssh -fNL 2375:localhost:2375 -p 2200 azure_username@something.region.cloudapp.azure.com -o StrictHostKeyChecking=no -o ServerAliveInterval=240 && echo "ACS SSH Tunnel successfully opened..."'
+                }
+        }
+
+        // Pull, Run, and Test on ACS 'stage'... 
+        stage('ACS Docker Pull and Run') {
+        // Set env variable for stage for SSH ACS Tunnel
+            withCredentials([usernamePassword(credentialsId: 'acr_credentials', passwordVariable: 'acr_pw', usernameVariable: 'acr_un')]) {
+                env.DOCKER_HOST=':2375'
+                sh 'echo "DOCKER_HOST is $DOCKER_HOST"'
+                sh 'docker info'
+                def imageName='registryname.azurecr.io/image-name'+':'+env.BUILD_NUMBER
+                sh "docker login registryprefix.azurecr.io -u ${acr_un} -p ${acr_pw}"
+                sh "docker pull ${imageName}"
+                sh "docker run -d --name image-name -p 443:443 ${imageName}"
+            }
+        }
+    }
+}
